@@ -1,4 +1,4 @@
-<?php namespace Laravel; use Closure;
+<?php namespace Laravel;
 
 class Lang {
 
@@ -33,6 +33,13 @@ class Lang {
 	protected static $lines = array();
 
 	/**
+	 * The language loader event name.
+	 *
+	 * @var string
+	 */
+	const loader = 'laravel.language.loader';
+
+	/**
 	 * Create a new Lang instance.
 	 *
 	 * @param  string  $key
@@ -44,7 +51,7 @@ class Lang {
 	{
 		$this->key = $key;
 		$this->language = $language;
-		$this->replacements = $replacements;
+		$this->replacements = (array) $replacements;
 	}
 
 	/**
@@ -82,7 +89,7 @@ class Lang {
 	 */
 	public static function has($key, $language = null)
 	{
-		return ! is_null(static::line($key, array(), $language)->get());
+		return static::line($key, array(), $language)->get() !== $key;
 	}
 
 	/**
@@ -105,13 +112,18 @@ class Lang {
 	 */
 	public function get($language = null, $default = null)
 	{
+		// If no default value is specified by the developer, we'll just return the
+		// key of the language line. This should indicate which language line we
+		// were attempting to render and is better than giving nothing back.
+		if (is_null($default)) $default = $this->key;
+
 		if (is_null($language)) $language = $this->language;
 
 		list($bundle, $file, $line) = $this->parse($this->key);
 
-		// If the file doesn't exist, we'll just return the default value that was
+		// If the file does not exist, we'll just return the default value that was
 		// given to the method. The default value is also returned even when the
-		// file exists and the file does not actually contain any lines.
+		// file exists and that file does not actually contain any lines.
 		if ( ! static::load($bundle, $language, $file))
 		{
 			return value($default);
@@ -179,6 +191,26 @@ class Lang {
 			return true;
 		}
 
+		// We use a "loader" event to delegate the loading of the language
+		// array, which allows the develop to organize the language line
+		// arrays for their application however they wish.
+		$lines = Event::first(static::loader, func_get_args());
+
+		static::$lines[$bundle][$language][$file] = $lines;
+
+		return count($lines) > 0;
+	}
+
+	/**
+	 * Load a language array from a language file.
+	 *
+	 * @param  string  $bundle
+	 * @param  string  $language
+	 * @param  string  $file
+	 * @return array
+	 */
+	public static function file($bundle, $language, $file)
+	{
 		$lines = array();
 
 		// Language files can belongs to the application or to any bundle
@@ -191,12 +223,7 @@ class Lang {
 			$lines = require $path;
 		}
 
-		// All of the language lines are cached in an array so we can
-		// quickly look them up on subsequent reqwuests for the line.
-		// This keeps us from loading files each time.
-		static::$lines[$bundle][$language][$file] = $lines;
-
-		return count($lines) > 0;
+		return $lines;
 	}
 
 	/**
